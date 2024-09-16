@@ -1,6 +1,6 @@
-use std::ffi::{CStr, CString};
-use glutin::display::GlDisplay;
 use gl::types::*;
+use glutin::display::GlDisplay;
+use std::ffi::{CStr, CString};
 
 pub mod gl {
     #![allow(clippy::all)]
@@ -69,14 +69,7 @@ impl Renderer {
 
             let pos_attrib = gl.GetAttribLocation(program, b"position\0".as_ptr() as *const _);
             let color_attrib = gl.GetAttribLocation(program, b"color\0".as_ptr() as *const _);
-            gl.VertexAttribPointer(
-                pos_attrib as GLuint,
-                2,
-                gl::FLOAT,
-                0,
-                5 * std::mem::size_of::<f32>() as GLsizei,
-                std::ptr::null(),
-            );
+            gl.VertexAttribPointer(pos_attrib as GLuint, 2, gl::FLOAT, 0, 5 * std::mem::size_of::<f32>() as GLsizei, std::ptr::null());
             gl.VertexAttribPointer(
                 color_attrib as GLuint,
                 3,
@@ -96,13 +89,7 @@ impl Renderer {
         self.draw_with_clear_color(0.1, 0.1, 0.1, 0.9)
     }
 
-    pub fn draw_with_clear_color(
-        &self,
-        red: GLfloat,
-        green: GLfloat,
-        blue: GLfloat,
-        alpha: GLfloat,
-    ) {
+    pub fn draw_with_clear_color(&self, red: GLfloat, green: GLfloat, blue: GLfloat, alpha: GLfloat) {
         unsafe {
             self.gl.UseProgram(self.program);
 
@@ -133,11 +120,7 @@ impl Drop for Renderer {
     }
 }
 
-unsafe fn create_shader(
-    gl: &gl::Gl,
-    shader: GLenum,
-    source: &[u8],
-) -> GLuint {
+unsafe fn create_shader(gl: &gl::Gl, shader: GLenum, source: &[u8]) -> GLuint {
     let shader = gl.CreateShader(shader);
     gl.ShaderSource(shader, 1, [source.as_ptr().cast()].as_ptr(), std::ptr::null());
     gl.CompileShader(shader);

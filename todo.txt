@@ -13,7 +13,6 @@ lighting
 ground
 controls
 debug panel
-Ship model
 collision
 
 # done

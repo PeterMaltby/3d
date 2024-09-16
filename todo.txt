@@ -1,0 +1,22 @@
+# todo.txt
+# author: peterm
+# created: 2024-09-15
+#  _____  ___   ___    ___  
+# |_   _|/ _ \ |   \  / _ \ 
+#   | | | (_) || |) || (_) |
+#   |_|  \___/ |___/  \___/ 
+#                           
+#############################################################
+
+model rendering
+lighting
+ground
+controls
+debug panel
+Ship model
+collision
+
+# done
+window created
+opneGL context
+

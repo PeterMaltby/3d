@@ -2,34 +2,7 @@ use gl::types::*;
 use glutin::display::GlDisplay;
 use std::ffi::{CStr, CString};
 use std::os::raw;
-
-macro_rules! glchk {
-    ($($s:expr;)*) => {
-        $(
-            if cfg!(debug_assertions) {
-                let err = $s;
-                //println!("{:?}", err);
-                if err != gl::NO_ERROR {
-                    let err_str = match err {
-                        gl::INVALID_ENUM => "GL_INVALID_ENUM",
-                        gl::INVALID_VALUE => "GL_INVALID_VALUE",
-                        gl::INVALID_OPERATION => "GL_INVALID_OPERATION",
-                        gl::INVALID_FRAMEBUFFER_OPERATION => "GL_INVALID_FRAMEBUFFER_OPERATION",
-                        gl::OUT_OF_MEMORY => "GL_OUT_OF_MEMORY",
-                        gl::STACK_UNDERFLOW => "GL_STACK_UNDERFLOW",
-                        gl::STACK_OVERFLOW => "GL_STACK_OVERFLOW",
-                        _ => "unknown error"
-                    };
-                    println!("{}:{} - {} caused {}",
-                             file!(),
-                             line!(),
-                             stringify!($s),
-                             err_str);
-                }
-            }
-        )*
-    }
-}
+use std::fs;
 
 pub mod gl {
     #![allow(clippy::all)]
@@ -62,8 +35,8 @@ impl Renderer {
                 println!("Shaders version on {}", shaders_version.to_string_lossy());
             }
 
-            let vertex_shader = create_shader(&gl, gl::VERTEX_SHADER, VERTEX_SHADER_SOURCE);
-            let fragment_shader = create_shader(&gl, gl::FRAGMENT_SHADER, FRAGMENT_SHADER_SOURCE);
+            let vertex_shader = create_shader(&gl, gl::VERTEX_SHADER, "shaders/vertex.glsl");
+            let fragment_shader = create_shader(&gl, gl::FRAGMENT_SHADER, "shaders/fragment.glsl");
 
             let program = gl.CreateProgram();
 
@@ -207,11 +180,17 @@ impl Drop for Renderer {
     }
 }
 
-unsafe fn create_shader(gl: &gl::Gl, shader_type: GLenum, source: &[u8]) -> GLuint {
+unsafe fn create_shader(gl: &gl::Gl, shader_type: GLenum, source_file: &str) -> GLuint {
 
-    println!("{:?}", VERTEX_SHADER_SOURCE);
     let shader = gl.CreateShader(shader_type);
-    gl.ShaderSource(shader, 1, [source.as_ptr().cast()].as_ptr(), std::ptr::null());
+
+    let shader_code = match fs::read_to_string(source_file) {
+        Ok(f) => f,
+        Err(e) => panic!("error reading shader source file: {}: {}", source_file, e),
+    };
+
+    let source_c_str = CString::new(shader_code.as_bytes()).unwrap();
+    gl.ShaderSource(shader, 1, &(source_c_str.as_ptr()), &(shader_code.len() as GLint));
     gl.CompileShader(shader);
 
     let mut status = gl::FALSE as GLint;
@@ -224,8 +203,7 @@ unsafe fn create_shader(gl: &gl::Gl, shader_type: GLenum, source: &[u8]) -> GLui
         buf.set_len((len as usize) -1);
 
         gl.GetShaderInfoLog(shader, len, std::ptr::null_mut(), buf.as_mut_ptr() as *mut GLchar);
-
-        panic!("{}", std::str::from_utf8(&buf).ok().expect("ShaderInfoLog not valid utf8"));
+        panic!("{}: {}",source_file, std::str::from_utf8(&buf).ok().expect("ShaderInfoLog not valid utf8"));
     }
     shader
 }
@@ -243,33 +221,3 @@ static VERTEX_DATA: [f32; 15] = [
      0.0,  0.5,  0.0,  1.0,  0.0,
      0.5, -0.5,  0.0,  0.0,  1.0,
 ];
-
-// const VERTEX_SHADER_SOURCE: &[u8] = include_bytes!("shaders/vertex.glsl");
-
-// const FRAGMENT_SHADER_SOURCE: &[u8] = include_bytes!("shaders/fragment.glsl");
-
-const VERTEX_SHADER_SOURCE: &[u8] = b"
-#version 100
-precision mediump float;
-
-attribute vec2 position;
-attribute vec3 color;
-
-varying vec3 v_color;
-
-void main() {
-    gl_Position = vec4(position, 0.0, 1.0);
-    v_color = color;
-}
-\0";
-
-const FRAGMENT_SHADER_SOURCE: &[u8] = b"
-#version 100
-precision mediump float;
-
-varying vec3 v_color;
-
-void main() {
-    gl_FragColor = vec4(v_color, 1.0);
-}
-\0";

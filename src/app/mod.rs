@@ -120,11 +120,8 @@ impl ApplicationHandler for App {
         let gl_context = self.gl_context.as_ref().unwrap();
         gl_context.make_current(&gl_surface).unwrap();
 
-        self.renderer.get_or_insert_with(|| Renderer::new(&gl_config.display()));
-
-
-        let renderer = self.renderer.as_ref().unwrap();
-        renderer.init_error_callback(true, true);
+        let renderer = self.renderer.get_or_insert_with(|| Renderer::new(&gl_config.display()));
+        renderer.init();
 
         // Try setting vsync.
         if let Err(res) = gl_surface.set_swap_interval(gl_context, SwapInterval::Wait(NonZeroU32::new(1).unwrap())) {
@@ -166,6 +163,7 @@ impl ApplicationHandler for App {
 
                     let renderer = self.renderer.as_ref().unwrap();
                     renderer.resize(size.width as i32, size.height as i32);
+                    renderer.draw();
                 }
             }
             WindowEvent::CloseRequested

@@ -1,93 +1,85 @@
 use gl::types::*;
 use glutin::display::GlDisplay;
+use std::collections::HashMap;
 use std::ffi::{CStr, CString};
-use std::os::raw;
 use std::fs;
+use std::os::raw;
 
 pub mod gl {
     #![allow(clippy::all)]
     include!(concat!(env!("OUT_DIR"), "/gl_bindings.rs"));
 }
 
+pub struct Shader {
+    id: GLuint,
+    shader_type: GLenum,
+    source_file: String,
+}
+
+pub struct Program {
+    id: GLuint,
+    shader_ids: Vec<GLuint>,
+}
+
+pub struct VertexAttribute {
+    component_size: GLuint,
+    stride: u32,
+    offset: u32,
+}
+
 pub struct Renderer {
     gl: gl::Gl,
+    vertex_array_objects: Vec<GLuint>,
+    vertex_buffer_objects: Vec<GLuint>,
+    shaders: HashMap<GLuint, Shader>,
+    programs: HashMap<GLuint, Program>,
+    runners: Vec<Runner>,
+}
+
+pub struct Runner {
     program: GLuint,
-    vao: GLuint,
-    vbo: GLuint,
+    vertex_array_object: GLuint,
 }
 
 impl Renderer {
     pub fn new<D: GlDisplay>(gl_display: &D) -> Self {
-        unsafe {
-            let gl = gl::Gl::load_with(|symbol| {
-                let symbol = CString::new(symbol).unwrap();
-                gl_display.get_proc_address(symbol.as_c_str()).cast()
-            });
+        let gl = gl::Gl::load_with(|symbol| {
+            let symbol = CString::new(symbol).unwrap();
+            gl_display.get_proc_address(symbol.as_c_str()).cast()
+        });
 
-            if let Some(renderer) = get_gl_string(&gl, gl::RENDERER) {
-                println!("Running on {}", renderer.to_string_lossy());
-            }
-            if let Some(version) = get_gl_string(&gl, gl::VERSION) {
-                println!("OpenGL Version {}", version.to_string_lossy());
-            }
-
-            if let Some(shaders_version) = get_gl_string(&gl, gl::SHADING_LANGUAGE_VERSION) {
-                println!("Shaders version on {}", shaders_version.to_string_lossy());
-            }
-
-            let vertex_shader = create_shader(&gl, gl::VERTEX_SHADER, "shaders/vertex.glsl");
-            let fragment_shader = create_shader(&gl, gl::FRAGMENT_SHADER, "shaders/fragment.glsl");
-
-            let program = gl.CreateProgram();
-
-            gl.AttachShader(program, vertex_shader);
-            gl.AttachShader(program, fragment_shader);
-
-            gl.LinkProgram(program);
-
-            gl.UseProgram(program);
-
-            gl.DeleteShader(vertex_shader);
-            gl.DeleteShader(fragment_shader);
-
-            let mut vao = std::mem::zeroed();
-            gl.GenVertexArrays(1, &mut vao);
-            gl.BindVertexArray(vao);
-
-            // push vertex to open GL
-            let mut vbo = std::mem::zeroed();
-            gl.GenBuffers(1, &mut vbo);
-            gl.BindBuffer(gl::ARRAY_BUFFER, vbo);
-            gl.BufferData(
-                gl::ARRAY_BUFFER,
-                (VERTEX_DATA.len() * std::mem::size_of::<f32>()) as GLsizeiptr,
-                VERTEX_DATA.as_ptr() as *const _,
-                gl::STATIC_DRAW,
-            );
-
-            let pos_attrib = gl.GetAttribLocation(program, b"position\0".as_ptr() as *const _);
-            let color_attrib = gl.GetAttribLocation(program, b"color\0".as_ptr() as *const _);
-            gl.VertexAttribPointer(
-                pos_attrib as GLuint,
-                2,
-                gl::FLOAT,
-                0,
-                5 * std::mem::size_of::<f32>() as GLsizei,
-                std::ptr::null(),
-            );
-            gl.VertexAttribPointer(
-                color_attrib as GLuint,
-                3,
-                gl::FLOAT,
-                0,
-                5 * std::mem::size_of::<f32>() as GLsizei,
-                (2 * std::mem::size_of::<f32>()) as *const () as *const _,
-            );
-            gl.EnableVertexAttribArray(pos_attrib as GLuint);
-            gl.EnableVertexAttribArray(color_attrib as GLuint);
-
-            Self { program, vao, vbo, gl }
+        if let Some(renderer) = get_gl_string(&gl, gl::RENDERER) {
+            println!("Running on {}", renderer.to_string_lossy());
         }
+        if let Some(version) = get_gl_string(&gl, gl::VERSION) {
+            println!("OpenGL Version {}", version.to_string_lossy());
+        }
+
+        if let Some(shaders_version) = get_gl_string(&gl, gl::SHADING_LANGUAGE_VERSION) {
+            println!("Shaders version on {}", shaders_version.to_string_lossy());
+        }
+
+        Self {
+            runners: Vec::new(),
+            programs: HashMap::new(),
+            shaders: HashMap::new(),
+            vertex_array_objects: Vec::new(),
+            vertex_buffer_objects: Vec::new(),
+            gl,
+        }
+    }
+
+    pub fn init(&mut self) {
+        self.init_error_callback(true, true);
+
+        let vertex_shader = self.create_shader(gl::VERTEX_SHADER, "shaders/vertex.glsl").unwrap();
+        let fragment_shader = self.create_shader(gl::FRAGMENT_SHADER, "shaders/fragment.glsl").unwrap();
+
+        let program = self.create_program(vertex_shader, fragment_shader).unwrap();
+
+        let vertex_array_object = self.create_vertex_array_object().unwrap();
+
+        self.runners.push(Runner { program, vertex_array_object });
     }
 
     pub fn draw(&self) {
@@ -96,14 +88,17 @@ impl Renderer {
 
     pub fn draw_with_clear_color(&self, red: GLfloat, green: GLfloat, blue: GLfloat, alpha: GLfloat) {
         unsafe {
-            self.gl.UseProgram(self.program);
-
-            self.gl.BindVertexArray(self.vao);
-            self.gl.BindBuffer(gl::ARRAY_BUFFER, self.vbo);
-
             self.gl.ClearColor(red, green, blue, alpha);
-            self.gl.Clear(gl::COLOR_BUFFER_BIT);
-            self.gl.DrawArrays(gl::TRIANGLES, 0, 3);
+
+            //self.gl.BindBuffer(gl::ARRAY_BUFFER, self.vbo);
+
+            for runner in &self.runners {
+                self.gl.UseProgram(runner.program);
+                self.gl.BindVertexArray(runner.vertex_array_object);
+
+                self.gl.Clear(gl::COLOR_BUFFER_BIT);
+                self.gl.DrawArrays(gl::TRIANGLES, 0, 3);
+            }
         }
     }
 
@@ -113,15 +108,15 @@ impl Renderer {
         }
     }
 
-    pub fn init_error_callback(&self, sync: bool, debug: bool) {
+    fn init_error_callback(&self, sync: bool, debug: bool) {
         extern "system" fn gl_debug_callback(
             source: GLenum,
             er_type: GLenum,
             id: GLuint,
             severity: GLenum,
-            length: GLsizei,
+            _: GLsizei,
             message: *const GLchar,
-            user_param: *mut raw::c_void,
+            _: *mut raw::c_void,
         ) {
             let message = unsafe { String::from_utf8(CStr::from_ptr(message).to_bytes().to_vec()).unwrap() };
 
@@ -156,56 +151,131 @@ impl Renderer {
                 _ => "UNKNOWN",
             };
 
-            println!(
-                "{:?} [{}] {}: {}",
-                id, severity, er_type, message
-            );
+            println!("{:?} [{}] {}: {} {}", id, severity, er_type, source, message);
         }
 
         unsafe {
-            if sync { self.gl.Enable(gl::DEBUG_OUTPUT_SYNCHRONOUS); }
+            if sync {
+                self.gl.Enable(gl::DEBUG_OUTPUT_SYNCHRONOUS);
+            }
             self.gl.DebugMessageCallback(Some(gl_debug_callback), 0 as *const _);
-            if debug { self.gl.Enable(gl::DEBUG_OUTPUT); }
+            if debug {
+                self.gl.Enable(gl::DEBUG_OUTPUT);
+            }
         }
+    }
+
+    fn create_vertex_array_object(&mut self) -> Result<GLuint, String> {
+        let vao = unsafe {
+            let mut vao: GLuint = 0;
+            self.gl.CreateVertexArrays(1, &mut vao);
+            vao
+        };
+        return Ok(vao);
+    }
+
+    fn create_shader(&mut self, shader_type: GLenum, source_file: &str) -> Result<GLuint, String> {
+        let shader = unsafe {
+            let shader = self.gl.CreateShader(shader_type);
+
+            let shader_code = match fs::read_to_string(source_file) {
+                Ok(f) => f,
+                Err(e) => return Err(format!("unable to read file \"{}\" {}", source_file, e)),
+            };
+
+            let source_c_str = CString::new(shader_code.as_bytes()).unwrap();
+            self.gl.ShaderSource(shader, 1, &(source_c_str.as_ptr()), &(shader_code.len() as GLint));
+            self.gl.CompileShader(shader);
+
+            let mut status = gl::FALSE as GLint;
+            self.gl.GetShaderiv(shader, gl::COMPILE_STATUS, &mut status);
+
+            if status != (gl::TRUE as GLint) {
+                let mut log_len = 0;
+                self.gl.GetShaderiv(shader, gl::INFO_LOG_LENGTH, &mut log_len);
+                let mut log_buf: Vec<u8> = Vec::with_capacity(log_len as usize);
+                log_buf.set_len((log_len as usize) - 1);
+                self.gl
+                    .GetShaderInfoLog(shader, log_len, std::ptr::null_mut(), log_buf.as_mut_ptr() as *mut GLchar);
+
+                return Err(String::from_utf8(log_buf).unwrap().to_string());
+            }
+
+            shader
+        };
+
+        self.shaders.insert(
+            shader,
+            Shader {
+                id: shader,
+                shader_type,
+                source_file: source_file.to_string(),
+            },
+        );
+        println!("created shader {}: {}", shader, source_file);
+
+        Ok(shader)
+    }
+
+    fn create_program(&mut self, vertex_shader: GLuint, fragment_shader: GLuint) -> Result<GLuint, String> {
+        let program_id = unsafe {
+            let program_id = self.gl.CreateProgram();
+            if program_id == 0 {
+                return Err("glCreateProgram failed".to_string());
+            };
+
+            self.gl.AttachShader(program_id, vertex_shader);
+            self.gl.AttachShader(program_id, fragment_shader);
+
+            self.gl.LinkProgram(program_id);
+
+            let mut status = gl::FALSE as GLint;
+            self.gl.GetProgramiv(program_id, gl::LINK_STATUS, &mut status);
+
+            if status != (gl::TRUE as GLint) {
+                let mut log_len = 0;
+                self.gl.GetProgramiv(program_id, gl::INFO_LOG_LENGTH, &mut log_len);
+                let mut log_buf: Vec<u8> = Vec::with_capacity(log_len as usize);
+                log_buf.set_len((log_len as usize) - 1);
+                self.gl
+                    .GetProgramInfoLog(program_id, log_len, std::ptr::null_mut(), log_buf.as_mut_ptr() as *mut GLchar);
+
+                return Err(String::from_utf8(log_buf).unwrap().to_string());
+            }
+            program_id
+        };
+
+        self.programs.insert(
+            program_id,
+            Program {
+                id: program_id,
+                shader_ids: vec![vertex_shader, fragment_shader],
+            },
+        );
+
+        return Ok(program_id);
     }
 }
 
 impl Drop for Renderer {
     fn drop(&mut self) {
         unsafe {
-            self.gl.DeleteProgram(self.program);
-            self.gl.DeleteBuffers(1, &self.vbo);
-            self.gl.DeleteVertexArrays(1, &self.vao);
+            for (shader_id, shader) in &self.shaders {
+                self.gl.DeleteShader(*shader_id);
+                println!("deleted shader {}: {}", shader_id, shader.source_file);
+            }
+            for (program_id, program) in &self.programs {
+                self.gl.DeleteProgram(*program_id);
+                println!("deleted program {}: {:?}", program_id, program.shader_ids);
+            }
+
+            //self.gl.DeleteBuffers(1, &self.vbo);
+
+            for vertex_array_object in &self.vertex_array_objects {
+                self.gl.DeleteVertexArrays(1, vertex_array_object);
+            }
         }
     }
-}
-
-unsafe fn create_shader(gl: &gl::Gl, shader_type: GLenum, source_file: &str) -> GLuint {
-
-    let shader = gl.CreateShader(shader_type);
-
-    let shader_code = match fs::read_to_string(source_file) {
-        Ok(f) => f,
-        Err(e) => panic!("error reading shader source file: {}: {}", source_file, e),
-    };
-
-    let source_c_str = CString::new(shader_code.as_bytes()).unwrap();
-    gl.ShaderSource(shader, 1, &(source_c_str.as_ptr()), &(shader_code.len() as GLint));
-    gl.CompileShader(shader);
-
-    let mut status = gl::FALSE as GLint;
-    gl.GetShaderiv(shader, gl::COMPILE_STATUS, &mut status);
-
-    if status != (gl::TRUE as GLint) {
-        let mut len = 0;
-        gl.GetShaderiv(shader, gl::INFO_LOG_LENGTH, &mut len);
-        let mut buf: Vec<u8> = Vec::with_capacity(len as usize);
-        buf.set_len((len as usize) -1);
-
-        gl.GetShaderInfoLog(shader, len, std::ptr::null_mut(), buf.as_mut_ptr() as *mut GLchar);
-        panic!("{}: {}",source_file, std::str::from_utf8(&buf).ok().expect("ShaderInfoLog not valid utf8"));
-    }
-    shader
 }
 
 fn get_gl_string(gl: &gl::Gl, variant: GLenum) -> Option<&'static CStr> {

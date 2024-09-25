@@ -121,7 +121,6 @@ impl ApplicationHandler for App {
         gl_context.make_current(&gl_surface).unwrap();
 
         let renderer = self.renderer.get_or_insert_with(|| Renderer::new(&gl_config.display()));
-        renderer.init();
 
         // Try setting vsync.
         if let Err(res) = gl_surface.set_swap_interval(gl_context, SwapInterval::Wait(NonZeroU32::new(1).unwrap())) {

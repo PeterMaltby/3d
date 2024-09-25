@@ -1,7 +1,7 @@
 extern crate gl_generator;
 
 use cfg_aliases::cfg_aliases;
-use gl_generator::{Api, Fallbacks, Profile, Registry, StructGenerator};
+use gl_generator::{Api, Fallbacks, GlobalGenerator, Profile, Registry};
 use std::env;
 use std::fs::File;
 use std::path::PathBuf;
@@ -24,5 +24,5 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
 
     let mut file = File::create(dest.join("gl_bindings.rs")).unwrap();
-    Registry::new(Api::Gl, (4, 6), Profile::Core, Fallbacks::All, []).write_bindings(StructGenerator, &mut file).unwrap();
+    Registry::new(Api::Gl, (4, 6), Profile::Core, Fallbacks::All, []).write_bindings(GlobalGenerator, &mut file).unwrap();
 }

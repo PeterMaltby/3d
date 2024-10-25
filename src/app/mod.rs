@@ -2,12 +2,12 @@ use std::error::Error;
 use std::num::NonZeroU32;
 
 //use gl::types::GLfloat;
-use raw_window_handle::HasWindowHandle;
+use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use renderer::Renderer;
 use winit::application::ApplicationHandler;
 use winit::event::{KeyEvent, WindowEvent};
-use winit::event_loop::ActiveEventLoop;
 use winit::event_loop::EventLoop;
+use winit::event_loop::{ActiveEventLoop, ControlFlow};
 use winit::keyboard::{Key, NamedKey};
 use winit::window::Window;
 
@@ -19,20 +19,31 @@ use glutin::surface::{Surface, SwapInterval, WindowSurface};
 
 use glutin_winit::{DisplayBuilder, GlWindow};
 
-pub struct AppConfig {}
+use std::time::Duration;
+use std::time::Instant;
 
 mod renderer;
 
-pub fn main(_: AppConfig) -> Result<(), Box<dyn Error>> {
+pub struct ApplicationConfig {}
+
+pub fn main(_: ApplicationConfig) -> Result<(), Box<dyn Error>> {
     let event_loop = EventLoop::new().unwrap();
 
-    // better name for this
-    let gl_display_template = ConfigTemplateBuilder::new().with_alpha_size(8).with_transparency(cfg!(cgl_backend));
+    let gl_display_config = ConfigTemplateBuilder::new()
+        .with_alpha_size(8)
+        .with_float_pixels(false)
+        .with_stencil_size(0)
+        .with_depth_size(0)
+        .with_multisampling(1)
+        .prefer_hardware_accelerated(Some(true))
+        .with_transparency(cfg!(cgl_backend));
 
     let window_attributes = Window::default_attributes().with_transparent(true).with_title("hello world!");
     let display_builder = DisplayBuilder::new().with_window_attributes(Some(window_attributes));
 
-    let mut app = App::new(gl_display_template, display_builder);
+    let mut app = App::new(gl_display_config, display_builder);
+
+    event_loop.set_control_flow(ControlFlow::Poll);
 
     event_loop.run_app(&mut app)?;
 
@@ -45,6 +56,8 @@ struct App {
     gl_context: Option<PossiblyCurrentContext>,
     renderer: Option<Renderer>,
     state: Option<AppState>,
+    now: Instant,
+    start_time: Instant,
     exit_state: Result<(), Box<dyn Error>>,
 }
 
@@ -70,6 +83,8 @@ impl App {
             renderer: None,
             state: None,
             gl_context: None,
+            now: Instant::now(),
+            start_time: Instant::now(),
             exit_state: Ok(()),
         }
     }
@@ -120,12 +135,15 @@ impl ApplicationHandler for App {
         let gl_context = self.gl_context.as_ref().unwrap();
         gl_context.make_current(&gl_surface).unwrap();
 
-        let renderer = self.renderer.get_or_insert_with(|| Renderer::new(&gl_config.display()));
+        self.renderer.get_or_insert_with(|| Renderer::new(&gl_config.display()));
 
         // Try setting vsync.
         if let Err(res) = gl_surface.set_swap_interval(gl_context, SwapInterval::Wait(NonZeroU32::new(1).unwrap())) {
             eprintln!("Error setting vsync: {res:?}");
         }
+
+        // reset app timer to stop big jumps
+        self.now = Instant::now();
 
         assert!(self.state.replace(AppState { gl_surface, window }).is_none())
     }
@@ -136,7 +154,6 @@ impl ApplicationHandler for App {
         // on exit due to nvidia driver touching the Wayland display from on
         // `exit` hook.
         let _gl_display = self.gl_context.take().unwrap().display();
-
 
         // Clear the window.
         self.state = None;
@@ -152,17 +169,20 @@ impl ApplicationHandler for App {
     fn window_event(&mut self, event_loop: &winit::event_loop::ActiveEventLoop, _: winit::window::WindowId, event: winit::event::WindowEvent) {
         match event {
             WindowEvent::Resized(size) if size.width != 0 && size.height != 0 => {
-                // Some platforms like EGL require resizing GL surface to update the size
-                // Notable platforms here are Wayland and macOS, other don't require it
-                // and the function is no-op, but it's wise to resize it for portability
-                // reasons.
                 if let Some(AppState { gl_surface, window: _ }) = self.state.as_ref() {
                     let gl_context = self.gl_context.as_ref().unwrap();
                     gl_surface.resize(gl_context, NonZeroU32::new(size.width).unwrap(), NonZeroU32::new(size.height).unwrap());
 
-                    let renderer = self.renderer.as_ref().unwrap();
+                    let renderer: &mut Renderer = self.renderer.as_mut().unwrap();
                     renderer.resize(size.width as i32, size.height as i32);
-                    renderer.draw();
+
+                    let delta = self.start_time.elapsed().as_millis() as f32 / 1000.0;
+                    let frame_delta = self.now.elapsed().as_millis() as f32 / 1000.0;
+                    self.now = Instant::now();
+
+                    println!("delta: {}, frame_delta {},", delta, frame_delta);
+
+                    renderer.draw((size.width, size.height), delta, frame_delta);
                 }
             }
             WindowEvent::CloseRequested
@@ -180,8 +200,18 @@ impl ApplicationHandler for App {
     fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
         if let Some(AppState { gl_surface, window }) = self.state.as_ref() {
             let gl_context = self.gl_context.as_ref().unwrap();
-            let renderer = self.renderer.as_ref().unwrap();
-            renderer.draw();
+            let renderer = self.renderer.as_mut().unwrap();
+
+            window.inner_size();
+            let windows_inner_size = (window.inner_size().width, window.inner_size().height);
+
+            let delta = self.start_time.elapsed().as_millis() as f32 / 1000.0;
+            let frame_delta = self.now.elapsed().as_millis() as f32 / 1000.0;
+            self.now = Instant::now();
+
+            println!("delta: {}, frame_delta {},", delta, frame_delta);
+
+            renderer.draw(windows_inner_size, delta, frame_delta);
             window.request_redraw();
 
             gl_surface.swap_buffers(gl_context).unwrap();
@@ -189,8 +219,7 @@ impl ApplicationHandler for App {
     }
 }
 
-// Find the config with the maximum number of samples, so our triangle will be
-// smooth.
+// Find the config with the maximum number of samples
 pub fn gl_config_picker(configs: Box<dyn Iterator<Item = Config> + '_>) -> Config {
     configs
         .reduce(|accum, config| {
@@ -213,11 +242,15 @@ fn create_gl_context(window: &Window, gl_config: &Config) -> NotCurrentContext {
 
     // Since glutin by default tries to create OpenGL core context, which may not be
     // present we should try gles.
-    let fallback_context_attributes = ContextAttributesBuilder::new().with_context_api(ContextApi::Gles(None)).build(raw_window_handle);
+    let fallback_context_attributes = ContextAttributesBuilder::new()
+        .with_context_api(ContextApi::Gles(None))
+        .build(raw_window_handle);
 
     // There are also some old devices that support neither modern OpenGL nor GLES.
     // To support these we can try and create a 2.1 context.
-    let legacy_context_attributes = ContextAttributesBuilder::new().with_context_api(ContextApi::OpenGl(Some(Version::new(2, 1)))).build(raw_window_handle);
+    let legacy_context_attributes = ContextAttributesBuilder::new()
+        .with_context_api(ContextApi::OpenGl(Some(Version::new(2, 1))))
+        .build(raw_window_handle);
 
     // Reuse the uncurrented context from a suspended() call if it exists, otherwise
     // this is the first time resumed() is called, where the context still
@@ -226,9 +259,11 @@ fn create_gl_context(window: &Window, gl_config: &Config) -> NotCurrentContext {
 
     unsafe {
         gl_display.create_context(gl_config, &context_attributes).unwrap_or_else(|_| {
-            gl_display
-                .create_context(gl_config, &fallback_context_attributes)
-                .unwrap_or_else(|_| gl_display.create_context(gl_config, &legacy_context_attributes).expect("failed to create context"))
+            gl_display.create_context(gl_config, &fallback_context_attributes).unwrap_or_else(|_| {
+                gl_display
+                    .create_context(gl_config, &legacy_context_attributes)
+                    .expect("failed to create context")
+            })
         })
     }
 }

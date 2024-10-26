@@ -40,7 +40,7 @@ impl Renderer {
             println!("OpenGL Version {}", version.to_string_lossy());
         }
         if let Some(shaders_version) = get_gl_string(gl::SHADING_LANGUAGE_VERSION) {
-            println!("Shaders version on {}", shaders_version.to_string_lossy());
+            println!("Shaders version on {}\n", shaders_version.to_string_lossy());
         }
 
         #[cfg(debug_assertions)]
@@ -64,8 +64,9 @@ impl Renderer {
             gl::BindBufferRange(gl::UNIFORM_BUFFER, 0, per_frame_buffer_object, 0, size_of::<PerFrameData>() as isize);
             gl::ClearColor(1.0, 1.0, 1.0, 1.0);
             gl::Enable(gl::DEPTH_TEST);
+            gl::DepthFunc(gl::LESS);
             gl::Enable(gl::POLYGON_OFFSET_LINE);
-            gl::PolygonOffset(-1.0, -1.0);
+            //gl::PolygonOffset(-1.0, -1.0);
         }
 
         Self {
@@ -80,7 +81,7 @@ impl Renderer {
     pub fn draw(&mut self, (width, height): (u32, u32), delta: f32, frame_delta: f32) {
         unsafe {
             let field_of_view = 45.0;
-            let near_clipping_plane = 0.1;
+            let near_clipping_plane = 0.01;
             let far_clipping_plane = 1000.0;
             let display_aspect = width as f32 / height as f32;
 
@@ -95,7 +96,7 @@ impl Renderer {
             let perspective_matrix = glm::perspective(display_aspect, field_of_view, near_clipping_plane, far_clipping_plane);
 
             let translation_matrix = perspective_matrix * translation_matrix;
-            println!("{}", translation_matrix);
+            //println!("{}", translation_matrix);
             let translation_matrix_slice = translation_matrix.as_slice();
 
             let mut per_frame_date = PerFrameData {
@@ -105,6 +106,7 @@ impl Renderer {
 
             gl::ClearColor(0.1, 0.1, 0.1, 0.9);
             gl::Clear(gl::COLOR_BUFFER_BIT);
+            gl::Clear(gl::DEPTH_BUFFER_BIT);
 
             let per_frame_data_ptr: *mut c_void = &mut per_frame_date as *mut _ as *mut c_void;
             gl::NamedBufferSubData(self.per_frame_buffer_object, 0, size_of::<PerFrameData>() as isize, per_frame_data_ptr);

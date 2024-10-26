@@ -19,7 +19,6 @@ use glutin::surface::{Surface, SwapInterval, WindowSurface};
 
 use glutin_winit::{DisplayBuilder, GlWindow};
 
-use std::time::Duration;
 use std::time::Instant;
 
 mod renderer;
@@ -32,10 +31,6 @@ pub fn main(_: ApplicationConfig) -> Result<(), Box<dyn Error>> {
     let gl_display_config = ConfigTemplateBuilder::new()
         .with_alpha_size(8)
         .with_float_pixels(false)
-        .with_stencil_size(0)
-        .with_depth_size(0)
-        .with_multisampling(1)
-        .prefer_hardware_accelerated(Some(true))
         .with_transparency(cfg!(cgl_backend));
 
     let window_attributes = Window::default_attributes().with_transparent(true).with_title("hello world!");
@@ -130,6 +125,9 @@ impl ApplicationHandler for App {
             }
         };
 
+        println!("using gl config:");
+        print_config(&gl_config);
+
         let surface_attributes = window.build_surface_attributes(Default::default()).expect("Failed to build surface attributes");
         let gl_surface = unsafe { gl_config.display().create_window_surface(&gl_config, &surface_attributes).unwrap() };
         let gl_context = self.gl_context.as_ref().unwrap();
@@ -180,7 +178,7 @@ impl ApplicationHandler for App {
                     let frame_delta = self.now.elapsed().as_millis() as f32 / 1000.0;
                     self.now = Instant::now();
 
-                    println!("delta: {}, frame_delta {},", delta, frame_delta);
+                    //println!("delta: {}, frame_delta {},", delta, frame_delta);
 
                     renderer.draw((size.width, size.height), delta, frame_delta);
                 }
@@ -209,7 +207,7 @@ impl ApplicationHandler for App {
             let frame_delta = self.now.elapsed().as_millis() as f32 / 1000.0;
             self.now = Instant::now();
 
-            println!("delta: {}, frame_delta {},", delta, frame_delta);
+            //println!("delta: {}, frame_delta {},", delta, frame_delta);
 
             renderer.draw(windows_inner_size, delta, frame_delta);
             window.request_redraw();
@@ -224,6 +222,7 @@ pub fn gl_config_picker(configs: Box<dyn Iterator<Item = Config> + '_>) -> Confi
     configs
         .reduce(|accum, config| {
             let transparency_check = config.supports_transparency().unwrap_or(false) & !accum.supports_transparency().unwrap_or(false);
+            //print_config(&config);
 
             if transparency_check || config.num_samples() > accum.num_samples() {
                 config
@@ -232,6 +231,20 @@ pub fn gl_config_picker(configs: Box<dyn Iterator<Item = Config> + '_>) -> Confi
             }
         })
         .unwrap()
+}
+
+fn print_config(config: &Config) {
+    println!("config");
+    println!("color buffer type: {:?}", config.color_buffer_type());
+    println!("float pixels: {:?}", config.float_pixels());
+    println!("alpha size: {:?}", config.alpha_size());
+    println!("depth size: {:?}", config.depth_size());
+    println!("stencil size: {:?}", config.stencil_size());
+    println!("num smaples: {:?}", config.num_samples());
+    println!("srgb_capable: {:?}", config.srgb_capable());
+    println!("hardware accelerated: {:?}", config.hardware_accelerated());
+    println!("transparency: {:?}", config.supports_transparency());
+    println!("API: {:?}\n", config.api());
 }
 
 fn create_gl_context(window: &Window, gl_config: &Config) -> NotCurrentContext {

@@ -3,7 +3,7 @@ use std::num::NonZeroU32;
 
 //use gl::types::GLfloat;
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
-use renderer::Renderer;
+use renderer::{Renderer};
 use winit::application::ApplicationHandler;
 use winit::event::{KeyEvent, WindowEvent};
 use winit::event_loop::EventLoop;
@@ -180,7 +180,7 @@ impl ApplicationHandler for App {
 
                     //println!("delta: {}, frame_delta {},", delta, frame_delta);
 
-                    renderer.draw((size.width, size.height), delta, frame_delta);
+                    renderer.draw(delta, frame_delta);
                 }
             }
             WindowEvent::CloseRequested
@@ -200,16 +200,13 @@ impl ApplicationHandler for App {
             let gl_context = self.gl_context.as_ref().unwrap();
             let renderer = self.renderer.as_mut().unwrap();
 
-            window.inner_size();
-            let windows_inner_size = (window.inner_size().width, window.inner_size().height);
-
             let delta = self.start_time.elapsed().as_millis() as f32 / 1000.0;
             let frame_delta = self.now.elapsed().as_millis() as f32 / 1000.0;
             self.now = Instant::now();
 
             //println!("delta: {}, frame_delta {},", delta, frame_delta);
 
-            renderer.draw(windows_inner_size, delta, frame_delta);
+            renderer.draw(delta, frame_delta);
             window.request_redraw();
 
             gl_surface.swap_buffers(gl_context).unwrap();

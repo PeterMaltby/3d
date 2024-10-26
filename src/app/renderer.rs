@@ -1,14 +1,32 @@
 use gl::types::*;
 use glutin::display::GlDisplay;
-use std::ffi::{CStr, CString, c_void};
+use std::ffi::{c_void, CStr, CString};
 use std::fs;
 use std::os::raw;
-
-
 
 pub mod gl {
     #![allow(clippy::all)]
     include!(concat!(env!("OUT_DIR"), "/gl_bindings.rs"));
+}
+
+pub struct DrawConfig {
+    field_of_view: f32,
+    near_clipping_plane: f32,
+    far_clipping_plane: f32,
+    display_dimensions: (i32, i32),
+    display_aspect: f32,
+}
+
+impl DrawConfig {
+    fn new((width, height): (i32, i32)) -> Self {
+        return DrawConfig {
+            field_of_view: 45.0,
+            near_clipping_plane: 0.1,
+            far_clipping_plane: 1000.0,
+            display_dimensions: (width, height),
+            display_aspect: width as f32 / height as f32,
+        };
+    }
 }
 
 pub struct Renderer {
@@ -17,6 +35,7 @@ pub struct Renderer {
     program: GLuint,
     vertex_array_object: GLuint,
     per_frame_buffer_object: GLuint,
+    draw_config: DrawConfig,
 }
 
 #[repr(C)]
@@ -27,7 +46,6 @@ struct PerFrameData {
 
 impl Renderer {
     pub fn new<D: GlDisplay>(gl_display: &D) -> Self {
-
         gl::load_with(|symbol| {
             let symbol = CString::new(symbol).unwrap();
             gl_display.get_proc_address(symbol.as_c_str()).cast()
@@ -66,8 +84,10 @@ impl Renderer {
             gl::Enable(gl::DEPTH_TEST);
             gl::DepthFunc(gl::LESS);
             gl::Enable(gl::POLYGON_OFFSET_LINE);
-            //gl::PolygonOffset(-1.0, -1.0);
+            gl::PolygonOffset(-1.0, -1.0);
         }
+
+        let draw_config = DrawConfig::new((300, 300));
 
         Self {
             vertex_shader,
@@ -75,17 +95,12 @@ impl Renderer {
             program,
             vertex_array_object,
             per_frame_buffer_object,
+            draw_config,
         }
     }
 
-    pub fn draw(&mut self, (width, height): (u32, u32), delta: f32, frame_delta: f32) {
+    pub fn draw(&mut self, delta: f32, frame_delta: f32) {
         unsafe {
-            let field_of_view = 45.0;
-            let near_clipping_plane = 0.01;
-            let far_clipping_plane = 1000.0;
-            let display_aspect = width as f32 / height as f32;
-
-
             let identity_matrix = glm::Mat4::identity();
             let translation_vector = glm::vec3(0.0, 0.0, -3.5);
             let translation_matrix = glm::translate(&identity_matrix, &translation_vector);
@@ -93,7 +108,12 @@ impl Renderer {
 
             let translation_matrix = glm::rotate(&translation_matrix, delta, &rotation_vec);
 
-            let perspective_matrix = glm::perspective(display_aspect, field_of_view, near_clipping_plane, far_clipping_plane);
+            let perspective_matrix = glm::perspective(
+                self.draw_config.display_aspect,
+                self.draw_config.field_of_view,
+                self.draw_config.near_clipping_plane,
+                self.draw_config.far_clipping_plane,
+            );
 
             let translation_matrix = perspective_matrix * translation_matrix;
             //println!("{}", translation_matrix);
@@ -111,7 +131,6 @@ impl Renderer {
             let per_frame_data_ptr: *mut c_void = &mut per_frame_date as *mut _ as *mut c_void;
             gl::NamedBufferSubData(self.per_frame_buffer_object, 0, size_of::<PerFrameData>() as isize, per_frame_data_ptr);
 
-
             gl::PolygonMode(gl::FRONT_AND_BACK, gl::FILL);
             gl::DrawArrays(gl::TRIANGLES, 0, 36);
 
@@ -120,13 +139,13 @@ impl Renderer {
 
             gl::PolygonMode(gl::FRONT_AND_BACK, gl::LINE);
             gl::DrawArrays(gl::TRIANGLES, 0, 36);
-            
-
         }
     }
 
-    pub fn resize(&self, width: i32, height: i32) {
+    pub fn resize(&mut self, width: i32, height: i32) {
         unsafe {
+            self.draw_config.display_dimensions = (width, height);
+            self.draw_config.display_aspect = width as f32/ height as f32;
             gl::Viewport(0, 0, width, height);
         }
     }
@@ -270,4 +289,3 @@ extern "system" fn gl_debug_callback(source: GLenum, er_type: GLenum, id: GLuint
 
     println!("{:?} [{}] {}: {} {}", id, severity, er_type, source, message);
 }
-

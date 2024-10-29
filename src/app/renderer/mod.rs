@@ -1,5 +1,6 @@
 use gl::types::*;
 use glutin::display::GlDisplay;
+use image::ImageReader;
 use std::ffi::{c_void, CStr, CString};
 use std::fs;
 use std::os::raw;
@@ -35,6 +36,7 @@ pub struct Renderer {
     program: GLuint,
     vertex_array_object: GLuint,
     per_frame_buffer_object: GLuint,
+    texture_id: GLuint,
     draw_config: DrawConfig,
 }
 
@@ -68,9 +70,11 @@ impl Renderer {
             gl::Enable(gl::DEBUG_OUTPUT);
         }
 
-        let vertex_shader = create_shader(gl::VERTEX_SHADER, "shaders/vertex.glsl").unwrap();
-        let fragment_shader = create_shader(gl::FRAGMENT_SHADER, "shaders/fragment.glsl").unwrap();
+        let vertex_shader = create_shader(gl::VERTEX_SHADER, "shaders/vertex_tex.glsl").unwrap();
+        let fragment_shader = create_shader(gl::FRAGMENT_SHADER, "shaders/fragment_tex.glsl").unwrap();
         let program = create_program(vertex_shader, fragment_shader).unwrap();
+
+        let texture_id = create_texture("textures/stone.png").unwrap();
 
         let vertex_array_object = create_vertex_array_object().unwrap();
         let per_frame_buffer_object = create_vertex_buffer_object(size_of::<PerFrameData>()).unwrap();
@@ -78,6 +82,8 @@ impl Renderer {
         unsafe {
             gl::UseProgram(program);
             gl::BindVertexArray(vertex_array_object);
+
+            gl::BindTextures( 0, 1, &texture_id);
 
             gl::BindBufferRange(gl::UNIFORM_BUFFER, 0, per_frame_buffer_object, 0, size_of::<PerFrameData>() as isize);
             gl::ClearColor(1.0, 1.0, 1.0, 1.0);
@@ -90,6 +96,7 @@ impl Renderer {
         let draw_config = DrawConfig::new((300, 300));
 
         Self {
+            texture_id,
             vertex_shader,
             fragment_shader,
             program,
@@ -145,7 +152,7 @@ impl Renderer {
     pub fn resize(&mut self, width: i32, height: i32) {
         unsafe {
             self.draw_config.display_dimensions = (width, height);
-            self.draw_config.display_aspect = width as f32/ height as f32;
+            self.draw_config.display_aspect = width as f32 / height as f32;
             gl::Viewport(0, 0, width, height);
         }
     }
@@ -154,8 +161,10 @@ impl Renderer {
 impl Drop for Renderer {
     fn drop(&mut self) {
         unsafe {
+            gl::DeleteTextures(1, & self.texture_id);
             gl::DeleteShader(self.fragment_shader);
             gl::DeleteShader(self.vertex_shader);
+            //delete shaders
             gl::DeleteProgram(self.program);
 
             gl::DeleteVertexArrays(1, &self.vertex_array_object);
@@ -251,6 +260,39 @@ fn create_program(vertex_shader: GLuint, fragment_shader: GLuint) -> Result<GLui
     };
 
     return Ok(program_id);
+}
+
+fn create_texture(source_file: &str) -> Result<GLuint, String> {
+    let texture_id = unsafe {
+
+        let img = match ImageReader::open(source_file) {
+            Ok(img) => img,
+            Err(e) => return Err(String::from("error opening image file")),
+        };
+        let img = match img.decode() {
+            Ok(img) => img,
+            Err(e) => return Err(String::from("error decoding image")),
+        };
+
+        let img = img.into_rgb8();
+
+        let width: i32 = img.width() as i32;
+        let height: i32 = img.height() as i32;
+
+        let mut tex: GLuint = 0;
+        // create texture 2D
+        gl::CreateTextures(gl::TEXTURE_2D, 1, &mut tex);
+        gl::TextureParameteri(tex, gl::TEXTURE_MAX_LEVEL, 0);
+        // these as statements are suspect
+        gl::TextureParameteri(tex, gl::TEXTURE_MIN_FILTER, gl::NEAREST as i32);
+        gl::TextureParameteri(tex, gl::TEXTURE_MAG_FILTER, gl::NEAREST as i32);
+        gl::TextureStorage2D(tex, 1, gl::RGB8, width, height);
+        gl::PixelStorei(gl::UNPACK_ALIGNMENT, 1);
+        gl::TextureSubImage2D(tex, 0, 0, 0, width, height, gl::RGB, gl::UNSIGNED_BYTE, (&img as &[u8]).as_ptr() as *const c_void);
+
+        tex
+    };
+    return Ok(texture_id);
 }
 
 extern "system" fn gl_debug_callback(source: GLenum, er_type: GLenum, id: GLuint, severity: GLenum, _: GLsizei, message: *const GLchar, _: *mut raw::c_void) {

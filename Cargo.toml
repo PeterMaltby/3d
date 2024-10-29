@@ -17,6 +17,7 @@ wayland = ["glutin-winit/wayland", "winit/wayland-dlopen", "winit/wayland-csd-ad
 #encase = { version = "0.10.0", features = ["nalgebra"] }
 glutin = "0.32.1"
 glutin-winit = "0.5.0"
+image = "0.25.4"
 nalgebra = "0.31.0"
 nalgebra-glm = "0.19.0"
 raw-window-handle = "0.6.2"

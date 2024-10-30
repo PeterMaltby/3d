@@ -1,14 +1,14 @@
 use gl::types::*;
 use glutin::display::GlDisplay;
 use image::ImageReader;
+use log::{error, info};
+use shader::{Shader, ShaderType};
 use std::ffi::{c_void, CStr, CString};
-use std::fs;
 use std::os::raw;
 
-pub mod gl {
-    #![allow(clippy::all)]
-    include!(concat!(env!("OUT_DIR"), "/gl_bindings.rs"));
-}
+mod shader;
+
+pub mod gl;
 
 pub struct DrawConfig {
     field_of_view: f32,
@@ -31,8 +31,8 @@ impl DrawConfig {
 }
 
 pub struct Renderer {
-    vertex_shader: GLuint,
-    fragment_shader: GLuint,
+    vertex_shader: Shader,
+    fragment_shader: Shader,
     program: GLuint,
     vertex_array_object: GLuint,
     per_frame_buffer_object: GLuint,
@@ -54,13 +54,13 @@ impl Renderer {
         });
 
         if let Some(renderer) = get_gl_string(gl::RENDERER) {
-            println!("Running on {}", renderer.to_string_lossy());
+            info!("Running on {}", renderer.to_string_lossy());
         }
         if let Some(version) = get_gl_string(gl::VERSION) {
-            println!("OpenGL Version {}", version.to_string_lossy());
+            info!("OpenGL Version {}", version.to_string_lossy());
         }
         if let Some(shaders_version) = get_gl_string(gl::SHADING_LANGUAGE_VERSION) {
-            println!("Shaders version on {}\n", shaders_version.to_string_lossy());
+            info!("Shaders version on {}\n", shaders_version.to_string_lossy());
         }
 
         #[cfg(debug_assertions)]
@@ -70,9 +70,9 @@ impl Renderer {
             gl::Enable(gl::DEBUG_OUTPUT);
         }
 
-        let vertex_shader = create_shader(gl::VERTEX_SHADER, "shaders/vertex_tex.glsl").unwrap();
-        let fragment_shader = create_shader(gl::FRAGMENT_SHADER, "shaders/fragment_tex.glsl").unwrap();
-        let program = create_program(vertex_shader, fragment_shader).unwrap();
+        let vertex_shader = Shader::new(ShaderType::VERTEX, "shaders/vertex_tex.glsl").unwrap();
+        let fragment_shader = Shader::new(ShaderType::FRAGMENT, "shaders/fragment_tex.glsl").unwrap();
+        let program = create_program(vertex_shader.handle, fragment_shader.handle).unwrap();
 
         let texture_id = create_texture("textures/stone.png").unwrap();
 
@@ -162,8 +162,6 @@ impl Drop for Renderer {
     fn drop(&mut self) {
         unsafe {
             gl::DeleteTextures(1, & self.texture_id);
-            gl::DeleteShader(self.fragment_shader);
-            gl::DeleteShader(self.vertex_shader);
             //delete shaders
             gl::DeleteProgram(self.program);
 
@@ -177,39 +175,6 @@ fn get_gl_string(variant: GLenum) -> Option<&'static CStr> {
         let s = gl::GetString(variant);
         (!s.is_null()).then(|| CStr::from_ptr(s.cast()))
     }
-}
-
-fn create_shader(shader_type: GLenum, source_file: &str) -> Result<GLuint, String> {
-    let shader = unsafe {
-        let shader = gl::CreateShader(shader_type);
-
-        let shader_code = match fs::read_to_string(source_file) {
-            Ok(f) => f,
-            Err(e) => return Err(format!("unable to read file \"{}\" {}", source_file, e)),
-        };
-
-        let source_c_str = CString::new(shader_code.as_bytes()).unwrap();
-        gl::ShaderSource(shader, 1, &(source_c_str.as_ptr()), &(shader_code.len() as GLint));
-        gl::CompileShader(shader);
-
-        let mut status = gl::FALSE as GLint;
-        gl::GetShaderiv(shader, gl::COMPILE_STATUS, &mut status);
-
-        if status != (gl::TRUE as GLint) {
-            let mut log_len = 0;
-            gl::GetShaderiv(shader, gl::INFO_LOG_LENGTH, &mut log_len);
-            let mut log_buf: Vec<u8> = Vec::with_capacity(log_len as usize);
-            log_buf.set_len((log_len as usize) - 1);
-            gl::GetShaderInfoLog(shader, log_len, std::ptr::null_mut(), log_buf.as_mut_ptr() as *mut GLchar);
-
-            return Err(String::from_utf8(log_buf).unwrap().to_string());
-        }
-        shader
-    };
-
-    println!("created shader {}: {}", shader, source_file);
-
-    Ok(shader)
 }
 
 fn create_vertex_array_object() -> Result<GLuint, String> {
@@ -329,5 +294,5 @@ extern "system" fn gl_debug_callback(source: GLenum, er_type: GLenum, id: GLuint
         _ => "UNKNOWN",
     };
 
-    println!("{:?} [{}] {}: {} {}", id, severity, er_type, source, message);
+    error!("{:?} [{}] {}: {} {}", id, severity, er_type, source, message);
 }

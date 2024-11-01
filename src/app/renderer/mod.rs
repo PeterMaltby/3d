@@ -1,12 +1,16 @@
 use gl::types::*;
+use anyhow::{anyhow, Context, Result};
 use glutin::display::GlDisplay;
 use image::ImageReader;
 use log::{error, info};
-use shader::{Shader, ShaderType};
 use std::ffi::{c_void, CStr, CString};
 use std::os::raw;
 
 mod shader;
+use shader::{Shader, ShaderType};
+
+mod program;
+use program::{Program};
 
 pub mod gl;
 
@@ -33,7 +37,7 @@ impl DrawConfig {
 pub struct Renderer {
     vertex_shader: Shader,
     fragment_shader: Shader,
-    program: GLuint,
+    program: Program,
     vertex_array_object: GLuint,
     per_frame_buffer_object: GLuint,
     texture_id: GLuint,
@@ -47,7 +51,7 @@ struct PerFrameData {
 }
 
 impl Renderer {
-    pub fn new<D: GlDisplay>(gl_display: &D) -> Self {
+    pub fn new<D: GlDisplay>(gl_display: &D) -> Result<Self> {
         gl::load_with(|symbol| {
             let symbol = CString::new(symbol).unwrap();
             gl_display.get_proc_address(symbol.as_c_str()).cast()
@@ -72,7 +76,7 @@ impl Renderer {
 
         let vertex_shader = Shader::new(ShaderType::VERTEX, "shaders/vertex_tex.glsl").unwrap();
         let fragment_shader = Shader::new(ShaderType::FRAGMENT, "shaders/fragment_tex.glsl").unwrap();
-        let program = create_program(vertex_shader.handle, fragment_shader.handle).unwrap();
+        let program = Program::new(&vertex_shader, &fragment_shader)?;
 
         let texture_id = create_texture("textures/stone.png").unwrap();
 
@@ -80,8 +84,8 @@ impl Renderer {
         let per_frame_buffer_object = create_vertex_buffer_object(size_of::<PerFrameData>()).unwrap();
 
         unsafe {
-            gl::UseProgram(program);
             gl::BindVertexArray(vertex_array_object);
+            program.use_program();
 
             gl::BindTextures( 0, 1, &texture_id);
 
@@ -95,7 +99,7 @@ impl Renderer {
 
         let draw_config = DrawConfig::new((300, 300));
 
-        Self {
+        Ok(Self {
             texture_id,
             vertex_shader,
             fragment_shader,
@@ -103,10 +107,10 @@ impl Renderer {
             vertex_array_object,
             per_frame_buffer_object,
             draw_config,
-        }
+        })
     }
 
-    pub fn draw(&mut self, delta: f32, frame_delta: f32) {
+    pub fn draw(&mut self, delta: f32, _frame_delta: f32) {
         unsafe {
             let identity_matrix = glm::Mat4::identity();
             let translation_vector = glm::vec3(0.0, 0.0, -3.5);
@@ -123,7 +127,6 @@ impl Renderer {
             );
 
             let translation_matrix = perspective_matrix * translation_matrix;
-            //println!("{}", translation_matrix);
             let translation_matrix_slice = translation_matrix.as_slice();
 
             let mut per_frame_date = PerFrameData {
@@ -162,9 +165,6 @@ impl Drop for Renderer {
     fn drop(&mut self) {
         unsafe {
             gl::DeleteTextures(1, & self.texture_id);
-            //delete shaders
-            gl::DeleteProgram(self.program);
-
             gl::DeleteVertexArrays(1, &self.vertex_array_object);
         }
     }
@@ -195,36 +195,6 @@ fn create_vertex_buffer_object(memory_size: usize) -> Result<GLuint, String> {
         vbo
     };
     return Ok(vertex_buffer_object);
-}
-
-fn create_program(vertex_shader: GLuint, fragment_shader: GLuint) -> Result<GLuint, String> {
-    let program_id = unsafe {
-        let program_id = gl::CreateProgram();
-        if program_id == 0 {
-            return Err("glCreateProgram failed".to_string());
-        };
-
-        gl::AttachShader(program_id, vertex_shader);
-        gl::AttachShader(program_id, fragment_shader);
-
-        gl::LinkProgram(program_id);
-
-        let mut status = gl::FALSE as GLint;
-        gl::GetProgramiv(program_id, gl::LINK_STATUS, &mut status);
-
-        if status != (gl::TRUE as GLint) {
-            let mut log_len = 0;
-            gl::GetProgramiv(program_id, gl::INFO_LOG_LENGTH, &mut log_len);
-            let mut log_buf: Vec<u8> = Vec::with_capacity(log_len as usize);
-            log_buf.set_len((log_len as usize) - 1);
-            gl::GetProgramInfoLog(program_id, log_len, std::ptr::null_mut(), log_buf.as_mut_ptr() as *mut GLchar);
-
-            return Err(String::from_utf8(log_buf).unwrap().to_string());
-        }
-        program_id
-    };
-
-    return Ok(program_id);
 }
 
 fn create_texture(source_file: &str) -> Result<GLuint, String> {
@@ -294,5 +264,5 @@ extern "system" fn gl_debug_callback(source: GLenum, er_type: GLenum, id: GLuint
         _ => "UNKNOWN",
     };
 
-    error!("{:?} [{}] {}: {} {}", id, severity, er_type, source, message);
+    error!("GL ERROR: {:?} [{}] {}: {} {}", id, severity, er_type, source, message);
 }

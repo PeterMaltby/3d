@@ -133,7 +133,7 @@ impl ApplicationHandler for App {
         let gl_context = self.gl_context.as_ref().unwrap();
         gl_context.make_current(&gl_surface).unwrap();
 
-        self.renderer.get_or_insert_with(|| Renderer::new(&gl_config.display()));
+        self.renderer.get_or_insert_with(|| Renderer::new(&gl_config.display()).unwrap());
 
         // Try setting vsync.
         if let Err(res) = gl_surface.set_swap_interval(gl_context, SwapInterval::Wait(NonZeroU32::new(1).unwrap())) {
@@ -244,8 +244,6 @@ fn print_config(config: &Config) {
 }
 
 fn create_gl_context(window: &Window, gl_config: &Config) -> NotCurrentContext {
-    debug!("creating gl context");
-
     let raw_window_handle = window.window_handle().ok().map(|wh| wh.as_raw());
 
     // The context creation part.

@@ -1,15 +1,18 @@
-use anyhow::{anyhow, Context, Error, Result};
+use anyhow::{anyhow, Context, Result};
 use gl::types::*;
-use log::{debug, info};
-use std::ffi::{c_void, CStr, CString};
+use log::info;
+use std::ffi::CString;
+use std::fmt;
 use std::fs;
 
 use super::gl;
 
-pub struct Shader{ 
+pub struct Shader {
     pub handle: u32,
+    pub shader_type: ShaderType,
 }
 
+#[derive(Clone, Copy)]
 pub enum ShaderType {
     FRAGMENT = gl::FRAGMENT_SHADER as isize,
     VERTEX = gl::VERTEX_SHADER as isize,
@@ -17,8 +20,8 @@ pub enum ShaderType {
 
 impl Shader {
     pub fn new(shader_type: ShaderType, source_file: &str) -> Result<Self> {
-
         info!("compiling shader: {}", source_file);
+
         let handle = unsafe {
             let shader = gl::CreateShader(shader_type as u32);
 
@@ -46,13 +49,24 @@ impl Shader {
 
         info!("created shader {}: {}", handle, source_file);
 
-        Ok(Shader { handle })
+        Ok(Shader { shader_type, handle })
     }
 }
 
 impl Drop for Shader {
     fn drop(&mut self) {
-        debug!("deleting shader: {}", self.handle);
-        unsafe { gl::DeleteShader(self.handle);}
+        info!("deleting: {}", self);
+        unsafe {
+            gl::DeleteShader(self.handle);
+        }
+    }
+}
+
+impl fmt::Display for Shader {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.shader_type {
+            ShaderType::FRAGMENT => write!(f, "fragment shader #{}", self.handle),
+            ShaderType::VERTEX => write!(f, "vertex shader #{}", self.handle),
+        }
     }
 }

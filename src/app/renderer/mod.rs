@@ -2,8 +2,8 @@ use gl::types::*;
 use anyhow::Result;
 use glutin::display::GlDisplay;
 use log::{error, info};
-use std::ffi::{c_void, CStr, CString};
 use std::os::raw;
+use std::ffi::{c_void, CStr, CString};
 
 mod shader;
 use shader::{Shader, ShaderType};
@@ -13,6 +13,8 @@ mod vertex_array_objects;
 use vertex_array_objects::VertexArrayObjects;
 mod texture;
 use texture::Texture;
+mod vertex_buffer_objects;
+use vertex_buffer_objects::VertexBufferObjects;
 
 pub mod gl;
 
@@ -43,7 +45,7 @@ pub struct Renderer {
     fragment_shader: Shader,
     program: Program,
     vertex_array_object: VertexArrayObjects,
-    per_frame_buffer_object: GLuint,
+    per_frame_buffer_object: VertexBufferObjects<PerFrameData>,
     texture: Texture,
     draw_config: DrawConfig,
 }
@@ -85,7 +87,7 @@ impl Renderer {
         let texture = Texture::new("textures/stone.png").unwrap();
 
         let vertex_array_object = VertexArrayObjects::new().unwrap();
-        let per_frame_buffer_object = create_vertex_buffer_object(size_of::<PerFrameData>()).unwrap();
+        let per_frame_buffer_object = VertexBufferObjects::new().unwrap();
 
         unsafe {
             program.use_program();
@@ -94,7 +96,8 @@ impl Renderer {
     
             texture.bind();
 
-            gl::BindBufferRange(gl::UNIFORM_BUFFER, 0, per_frame_buffer_object, 0, size_of::<PerFrameData>() as isize);
+            per_frame_buffer_object.bind();
+
             gl::ClearColor(1.0, 1.0, 1.0, 1.0);
             gl::Enable(gl::DEPTH_TEST);
             gl::DepthFunc(gl::LESS);
@@ -134,7 +137,7 @@ impl Renderer {
             let translation_matrix = perspective_matrix * translation_matrix;
             let translation_matrix_slice = translation_matrix.as_slice();
 
-            let mut per_frame_date = PerFrameData {
+            let per_frame_date = PerFrameData {
                 perspective_transform: translation_matrix_slice.try_into().expect("slice is incorrect length"),
                 wire_frame_enabled: 0,
             };
@@ -143,17 +146,13 @@ impl Renderer {
             gl::Clear(gl::COLOR_BUFFER_BIT);
             gl::Clear(gl::DEPTH_BUFFER_BIT);
 
-            let per_frame_data_ptr: *mut c_void = &mut per_frame_date as *mut _ as *mut c_void;
-            gl::NamedBufferSubData(self.per_frame_buffer_object, 0, size_of::<PerFrameData>() as isize, per_frame_data_ptr);
+            self.per_frame_buffer_object.sub_buffer(per_frame_date);
 
             gl::PolygonMode(gl::FRONT_AND_BACK, gl::FILL);
             gl::DrawArrays(gl::TRIANGLES, 0, 36);
 
-            per_frame_date.wire_frame_enabled = 1;
-            gl::NamedBufferSubData(self.per_frame_buffer_object, 0, size_of::<PerFrameData>() as isize, per_frame_data_ptr);
-
-            gl::PolygonMode(gl::FRONT_AND_BACK, gl::LINE);
-            gl::DrawArrays(gl::TRIANGLES, 0, 36);
+            //gl::PolygonMode(gl::FRONT_AND_BACK, gl::LINE);
+            //gl::DrawArrays(gl::TRIANGLES, 0, 36);
         }
     }
 
@@ -171,17 +170,6 @@ fn get_gl_string(variant: GLenum) -> Option<&'static CStr> {
         let s = gl::GetString(variant);
         (!s.is_null()).then(|| CStr::from_ptr(s.cast()))
     }
-}
-
-fn create_vertex_buffer_object(memory_size: usize) -> Result<GLuint, String> {
-    let vertex_buffer_object = unsafe {
-        let mut vbo: GLuint = 0;
-        gl::CreateBuffers(1, &mut vbo);
-
-        gl::NamedBufferStorage(vbo, memory_size as isize, std::ptr::null(), gl::DYNAMIC_STORAGE_BIT);
-        vbo
-    };
-    return Ok(vertex_buffer_object);
 }
 
 extern "system" fn gl_debug_callback(source: GLenum, er_type: GLenum, id: GLuint, severity: GLenum, _: GLsizei, message: *const GLchar, _: *mut raw::c_void) {

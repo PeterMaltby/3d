@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::Result;
 use gl::types::*;
 use log::info;
 use std::fmt;

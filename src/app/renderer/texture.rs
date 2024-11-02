@@ -1,8 +1,8 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
 use gl::types::*;
 use image::ImageReader;
 use log::info;
-use std::ffi::{c_void, CStr, CString};
+use std::ffi::c_void;
 use std::fmt;
 
 use super::gl;

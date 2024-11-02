@@ -2,7 +2,7 @@ use std::error::Error;
 use std::num::NonZeroU32;
 
 //use gl::types::GLfloat;
-use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
+use raw_window_handle::HasWindowHandle;
 use renderer::{Renderer};
 use winit::application::ApplicationHandler;
 use winit::event::{KeyEvent, WindowEvent};
@@ -20,7 +20,7 @@ use glutin::surface::{Surface, SwapInterval, WindowSurface};
 use glutin_winit::{DisplayBuilder, GlWindow};
 
 use std::time::Instant;
-use log::{debug, info, log, trace, warn};
+use log::{debug, info, trace, warn};
 
 mod renderer;
 

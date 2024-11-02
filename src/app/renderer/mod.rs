@@ -1,7 +1,6 @@
 use gl::types::*;
-use anyhow::{anyhow, Context, Result};
+use anyhow::Result;
 use glutin::display::GlDisplay;
-use image::ImageReader;
 use log::{error, info};
 use std::ffi::{c_void, CStr, CString};
 use std::os::raw;
@@ -37,6 +36,8 @@ impl DrawConfig {
     }
 }
 
+
+#[allow(unused)]
 pub struct Renderer {
     vertex_shader: Shader,
     fragment_shader: Shader,
@@ -81,7 +82,7 @@ impl Renderer {
         let fragment_shader = Shader::new(ShaderType::FRAGMENT, "shaders/fragment_tex.glsl").unwrap();
         let program = Program::new(&vertex_shader, &fragment_shader)?;
 
-        let texture = Texture::new("textures/tone.png").unwrap();
+        let texture = Texture::new("textures/stone.png").unwrap();
 
         let vertex_array_object = VertexArrayObjects::new().unwrap();
         let per_frame_buffer_object = create_vertex_buffer_object(size_of::<PerFrameData>()).unwrap();

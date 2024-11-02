@@ -20,14 +20,13 @@ pub enum ShaderType {
 
 impl Shader {
     pub fn new(shader_type: ShaderType, source_file: &str) -> Result<Self> {
-        info!("compiling shader: {}", source_file);
 
         let handle = unsafe {
             let shader = gl::CreateShader(shader_type as u32);
 
-            let shader_code = fs::read_to_string(source_file).context("failed to read texture source file")?;
+            let shader_code = fs::read_to_string(source_file).with_context(|| format!("failed to read texture source file {}", source_file))?;
 
-            let source_c_str = CString::new(shader_code.as_bytes()).context("failed to convert shader source to c string")?;
+            let source_c_str = CString::new(shader_code.as_bytes()).with_context(|| format!("failed to convert shader source to c string {}", source_file))?;
 
             gl::ShaderSource(shader, 1, &(source_c_str.as_ptr()), &(shader_code.len() as GLint));
             gl::CompileShader(shader);
@@ -47,8 +46,7 @@ impl Shader {
             shader
         };
 
-        info!("created shader {}: {}", handle, source_file);
-
+        info!("created shader #{}: {}", handle, source_file);
         Ok(Shader { shader_type, handle })
     }
 }

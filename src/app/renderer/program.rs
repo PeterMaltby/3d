@@ -1,10 +1,8 @@
 use anyhow::{anyhow, Context, Result};
 use gl::types::*;
 use log::info;
-use std::ffi::CString;
+use shader::Shader;
 use std::fmt;
-use std::fs;
-use shader::{Shader, ShaderType};
 
 use super::gl;
 use super::shader;
@@ -15,13 +13,14 @@ pub struct Program {
 
 impl Program {
     pub fn new(vertex_shader: &Shader, fragment_shader: &Shader) -> Result<Self> {
-        info!("compiling shader: {}, {}", vertex_shader, fragment_shader);
 
         let program_id = unsafe {
             let program_id = gl::CreateProgram();
             if program_id == 0 {
                 return Err(anyhow!("glCreateProgram failed: {}, {}", vertex_shader, fragment_shader));
             }
+
+            // check Shaders are valid code
 
             gl::AttachShader(program_id, vertex_shader.handle);
             gl::AttachShader(program_id, fragment_shader.handle);
@@ -44,12 +43,14 @@ impl Program {
             program_id
         };
 
+        info!("created program #{} from {}, {}",program_id, vertex_shader, fragment_shader);
+
         return Ok(Program { handle: program_id });
     }
 
     pub unsafe fn use_program(&self) {
-            info!("using program: {}", self);
-            gl::UseProgram(self.handle);
+        info!("using program: {}", self);
+        gl::UseProgram(self.handle);
     }
 }
 

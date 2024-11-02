@@ -8,9 +8,12 @@ use std::os::raw;
 
 mod shader;
 use shader::{Shader, ShaderType};
-
 mod program;
-use program::{Program};
+use program::Program;
+mod vertex_array_objects;
+use vertex_array_objects::VertexArrayObjects;
+mod texture;
+use texture::Texture;
 
 pub mod gl;
 
@@ -38,9 +41,9 @@ pub struct Renderer {
     vertex_shader: Shader,
     fragment_shader: Shader,
     program: Program,
-    vertex_array_object: GLuint,
+    vertex_array_object: VertexArrayObjects,
     per_frame_buffer_object: GLuint,
-    texture_id: GLuint,
+    texture: Texture,
     draw_config: DrawConfig,
 }
 
@@ -78,16 +81,17 @@ impl Renderer {
         let fragment_shader = Shader::new(ShaderType::FRAGMENT, "shaders/fragment_tex.glsl").unwrap();
         let program = Program::new(&vertex_shader, &fragment_shader)?;
 
-        let texture_id = create_texture("textures/stone.png").unwrap();
+        let texture = Texture::new("textures/tone.png").unwrap();
 
-        let vertex_array_object = create_vertex_array_object().unwrap();
+        let vertex_array_object = VertexArrayObjects::new().unwrap();
         let per_frame_buffer_object = create_vertex_buffer_object(size_of::<PerFrameData>()).unwrap();
 
         unsafe {
-            gl::BindVertexArray(vertex_array_object);
             program.use_program();
 
-            gl::BindTextures( 0, 1, &texture_id);
+            vertex_array_object.bind();
+    
+            texture.bind();
 
             gl::BindBufferRange(gl::UNIFORM_BUFFER, 0, per_frame_buffer_object, 0, size_of::<PerFrameData>() as isize);
             gl::ClearColor(1.0, 1.0, 1.0, 1.0);
@@ -100,7 +104,7 @@ impl Renderer {
         let draw_config = DrawConfig::new((300, 300));
 
         Ok(Self {
-            texture_id,
+            texture,
             vertex_shader,
             fragment_shader,
             program,
@@ -161,29 +165,11 @@ impl Renderer {
     }
 }
 
-impl Drop for Renderer {
-    fn drop(&mut self) {
-        unsafe {
-            gl::DeleteTextures(1, & self.texture_id);
-            gl::DeleteVertexArrays(1, &self.vertex_array_object);
-        }
-    }
-}
-
 fn get_gl_string(variant: GLenum) -> Option<&'static CStr> {
     unsafe {
         let s = gl::GetString(variant);
         (!s.is_null()).then(|| CStr::from_ptr(s.cast()))
     }
-}
-
-fn create_vertex_array_object() -> Result<GLuint, String> {
-    let vao = unsafe {
-        let mut vao: GLuint = 0;
-        gl::CreateVertexArrays(1, &mut vao);
-        vao
-    };
-    return Ok(vao);
 }
 
 fn create_vertex_buffer_object(memory_size: usize) -> Result<GLuint, String> {
@@ -195,39 +181,6 @@ fn create_vertex_buffer_object(memory_size: usize) -> Result<GLuint, String> {
         vbo
     };
     return Ok(vertex_buffer_object);
-}
-
-fn create_texture(source_file: &str) -> Result<GLuint, String> {
-    let texture_id = unsafe {
-
-        let img = match ImageReader::open(source_file) {
-            Ok(img) => img,
-            Err(e) => return Err(String::from("error opening image file")),
-        };
-        let img = match img.decode() {
-            Ok(img) => img,
-            Err(e) => return Err(String::from("error decoding image")),
-        };
-
-        let img = img.into_rgb8();
-
-        let width: i32 = img.width() as i32;
-        let height: i32 = img.height() as i32;
-
-        let mut tex: GLuint = 0;
-        // create texture 2D
-        gl::CreateTextures(gl::TEXTURE_2D, 1, &mut tex);
-        gl::TextureParameteri(tex, gl::TEXTURE_MAX_LEVEL, 0);
-        // these as statements are suspect
-        gl::TextureParameteri(tex, gl::TEXTURE_MIN_FILTER, gl::NEAREST as i32);
-        gl::TextureParameteri(tex, gl::TEXTURE_MAG_FILTER, gl::NEAREST as i32);
-        gl::TextureStorage2D(tex, 1, gl::RGB8, width, height);
-        gl::PixelStorei(gl::UNPACK_ALIGNMENT, 1);
-        gl::TextureSubImage2D(tex, 0, 0, 0, width, height, gl::RGB, gl::UNSIGNED_BYTE, (&img as &[u8]).as_ptr() as *const c_void);
-
-        tex
-    };
-    return Ok(texture_id);
 }
 
 extern "system" fn gl_debug_callback(source: GLenum, er_type: GLenum, id: GLuint, severity: GLenum, _: GLsizei, message: *const GLchar, _: *mut raw::c_void) {

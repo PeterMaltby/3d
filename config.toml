@@ -1,0 +1,12 @@
+
+rust_log="warn,threed=debug,threed::app=debug,threed::app::render=debug"
+
+[renderer]
+# backends: String, comma list
+#    vulkan = “vulkan” or “vk”
+#    dx12 = “dx12” or “d3d12”
+#    metal = “metal” or “mtl”
+#    gles = “opengl” or “gles” or “gl”
+#    webgpu = “webgpu”
+backends="vk"
+

@@ -5,7 +5,7 @@ use winit::dpi::PhysicalSize;
 use winit::event::{KeyEvent, WindowEvent};
 use winit::event_loop::ActiveEventLoop;
 use winit::keyboard::{Key, NamedKey};
-use winit::window::{Window};
+use winit::window::Window;
 
 use crate::config::AppConfig;
 use std::time::Instant;
@@ -107,8 +107,8 @@ impl<'a> ApplicationHandler for App<'a> {
         let frame_delta = self.now.elapsed().as_millis() as f32 / 1000.0;
         self.now = Instant::now();
 
-        if let (Some(renderer), Some(window)) = (self.renderer.as_mut(), self.window.as_ref()) {
-            match renderer.render(window.clone()) {
+        if let Some(renderer) = self.renderer.as_mut() {
+            match renderer.render() {
                 Ok(_) => {}
                 Err(e) => {
                     error!("render pass failed");
@@ -117,7 +117,6 @@ impl<'a> ApplicationHandler for App<'a> {
                     return;
                 }
             }
-
         }
 
         trace!("delta: {}ms, frame_delta {}ms,", delta, frame_delta);

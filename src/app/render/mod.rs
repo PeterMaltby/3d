@@ -11,10 +11,11 @@ pub mod config;
 pub mod error;
 
 pub struct Renderer<'window> {
-    surface: Surface<'window>,
+    context: Surface<'window>,
     device: Device,
     queue: Queue,
-    surface_configuration: SurfaceConfiguration,
+    window: Arc<Window>,
+    context_configuration: SurfaceConfiguration,
     size: winit::dpi::PhysicalSize<u32>,
 }
 
@@ -24,15 +25,16 @@ impl<'window> Renderer<'window> {
 
         info!("{:?}", backends);
 
-        let gpu_instance_config = InstanceDescriptor {
+        let graphics_instance_config = InstanceDescriptor {
             backends: Backends::from_comma_list(&config.backends),
             flags: InstanceFlags::from_build_config(),
             backend_options: BackendOptions::from_env_or_default(),
         };
 
-        let gpu_instance = wgpu::Instance::new(&gpu_instance_config);
+        let graphics_instance = wgpu::Instance::new(&graphics_instance_config);
 
-        let surface = gpu_instance.create_surface(window)?;
+        // get our render context
+        let context = graphics_instance.create_surface(window.clone())?;
 
         let adapter_config = wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
@@ -40,14 +42,18 @@ impl<'window> Renderer<'window> {
                 Some(true) => true,
                 _ => false,
             },
-            compatible_surface: Some(&surface),
+            compatible_surface: Some(&context),
         };
 
-        let adapter = match gpu_instance.request_adapter(&adapter_config).await {
+        let adapter = match graphics_instance.request_adapter(&adapter_config).await {
             Some(adapter) => adapter,
-            _ => return Err(error::Error::AdpaterRequestFailure),
+            _ => {
+                error!("failed to get graphics adapter");
+                return Err(error::Error::AdpaterRequestFailure);
+            }
         };
 
+        // TODO link to config
         let device_reqs = wgpu::DeviceDescriptor {
             required_limits: wgpu::Limits::default(),
             required_features: wgpu::Features::empty(),
@@ -59,24 +65,28 @@ impl<'window> Renderer<'window> {
 
         let size = winit::dpi::PhysicalSize::new(800, 800);
 
-        let surface_caps = surface.get_capabilities(&adapter);
-        let surface_format = surface_caps.formats.iter().find(|f| f.is_srgb()).copied().unwrap_or(surface_caps.formats[0]);
-        let surface_configuration = wgpu::SurfaceConfiguration {
+        let context_capabilities = context.get_capabilities(&adapter);
+        
+        // TODO set some nice defaults
+        let surface_format = context_capabilities.formats.iter().find(|f| f.is_srgb()).copied().unwrap_or(context_capabilities.formats[0]);
+
+        let context_configuration = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
             width: size.width,
             height: size.height,
-            present_mode: surface_caps.present_modes[0],
-            alpha_mode: surface_caps.alpha_modes[0],
+            present_mode: context_capabilities.present_modes[0],
+            alpha_mode: context_capabilities.alpha_modes[0],
             view_formats: vec![],
             desired_maximum_frame_latency: 2,
         };
 
         Ok(Self {
-            surface,
+            window,
+            context,
             device,
             queue,
-            surface_configuration,
+            context_configuration,
             size,
         })
     }
@@ -85,14 +95,15 @@ impl<'window> Renderer<'window> {
         info!("resized window");
         if new_size.width > 0 && new_size.height > 0 {
             self.size = new_size;
-            self.surface_configuration.width = new_size.width;
-            self.surface_configuration.height = new_size.height;
-            self.surface.configure(&self.device, &self.surface_configuration);
+            self.context_configuration.width = new_size.width;
+            self.context_configuration.height = new_size.height;
+            self.context.configure(&self.device, &self.context_configuration);
         }
     }
 
-    pub fn render(&mut self, window: Arc<Window>) -> Result<()> {
-        let surface_texture: SurfaceTexture = match self.surface.get_current_texture() {
+    pub fn render(&mut self) -> Result<()> {
+        // WGPU calls the context a surface
+        let surface_texture: SurfaceTexture = match self.context.get_current_texture() {
             Ok(st) => st,
             Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
                 warn!("surface lost or outdated attempting recovery");
@@ -106,16 +117,23 @@ impl<'window> Renderer<'window> {
             Err(e) => return Err(error::Error::SurfaceError(e)),
         };
 
-        let texture_view = surface_texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
+        // The context texture is our windows texture
+        let context_texture = surface_texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
         let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         {
             let _r_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: None,
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &texture_view,
+                    // output to texture
+                    view: &context_texture,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::GREEN),
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: 0.1,
+                            g: 0.2,
+                            b: 0.3,
+                            a: 0.6,
+                        }),
                         store: wgpu::StoreOp::Store,
                     },
                 })],
@@ -125,7 +143,7 @@ impl<'window> Renderer<'window> {
             });
         }
         self.queue.submit(Some(encoder.finish()));
-        window.as_ref().request_redraw();
+        self.window.as_ref().request_redraw();
         surface_texture.present();
 
         return Ok(());
